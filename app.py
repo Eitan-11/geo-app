@@ -1,5 +1,5 @@
 import streamlit as st
-from geopy.geocoders import Nominatim
+from geopy.geocoders import ArcGIS
 from geopy.distance import geodesic
 import pandas as pd
 import time
@@ -8,16 +8,15 @@ import time
 st.set_page_config(page_title="מחשבון פיזור יישובים", page_icon="📍")
 
 st.title("📍 מדד הפיזור הגיאוגרפי")
-st.markdown("חישוב רמת הריחוק הממוצעת והצגת המיקומים על מפה אינטראקטיבית.")
+st.markdown("גרסה יציבה - שימוש במנוע ArcGIS לאיתור מיקומים.")
 
 # תיבת קלט
 input_cities = st.text_area("הזינו שמות יישובים (מופרדים בפסיק):", 
                             "נופית, צור הדסה, רחובות, זכרון יעקב, גבעת שמואל")
 
 if st.button("חשב רמת פיזור והצג מפה"):
-    # שינוי חשוב: שם ייחודי מאוד והגדלת זמן ההמתנה (timeout)
-    # תשנה את 'my_unique_geo_app_2026_user123' למשהו אישי שלך
-    geolocator = Nominatim(user_agent="my_unique_geo_app_2026_user123", timeout=10)
+    # מעבר למנוע ArcGIS - הרבה יותר יציב ולא דורש User Agent מורכב
+    geolocator = ArcGIS(timeout=10)
     
     city_list = [c.strip() for c in input_cities.split(",") if c.strip()]
     
@@ -27,19 +26,23 @@ if st.button("חשב רמת פיזור והצג מפה"):
     with st.spinner('מאתר מיקומים ומחשב מרחקים...'):
         for name in city_list:
             try:
+                # ArcGIS מצוין בזיהוי שמות בעברית גם בלי "ישראל", 
+                # אבל נשאיר את זה לביטחון
                 search_query = name if "ישראל" in name or "Israel" in name else f"{name}, Israel"
-                # הוספת timeout גם כאן
+                
                 loc = geolocator.geocode(search_query)
                 
                 if loc:
                     locations.append({"name": name, "coord": (loc.latitude, loc.longitude)})
                     map_data.append({"lat": loc.latitude, "lon": loc.longitude})
+                else:
+                    st.warning(f"⚠️ לא מצאתי את: {name}")
                 
-                # הוספת השהיה קצרה בין בקשה לבקשה כדי לא להעמיס על השרת
-                time.sleep(1) 
+                # עם ArcGIS אפשר להוריד את ה-sleep או לקצר אותו מאוד
+                time.sleep(0.2) 
                 
             except Exception as e:
-                st.error(f"שגיאה באיתור היישוב {name}: שרת המפות לא זמין כרגע. נסה שוב בעוד דקה.")
+                st.error(f"שגיאה טכנית באיתור {name}. נסה שוב בעוד רגע.")
                 continue
 
     if len(locations) < 2:
