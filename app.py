@@ -83,4 +83,39 @@ if calculate or 'results_df' in st.session_state:
         m1, m2, m3 = st.columns(3)
         m1.metric("📊 מדד פיזור כללי", f"{st.session_state.dispersion:.1f} ק\"מ")
         
-        best_air = df.loc[df["מרחק אווירי ממוצע"].idxmin(),
+        best_air = df.loc[df["מרחק אווירי ממוצע"].idxmin(), "יישוב"]
+        m2.metric("📍 המרכז הגיאוגרפי", best_air)
+        
+        best_road = df.loc[df["מרחק נסיעה ממוצע"].idxmin(), "יישוב"]
+        m3.metric("🏠 היישוב הכי נגיש", best_road)
+
+        st.divider()
+
+        # ב. בחירת יעד למפה וטבלה
+        col_table, col_map = st.columns([1, 2])
+        
+        with col_table:
+            st.subheader("📝 טבלת השוואה")
+            st.write("לחץ על יישוב בטבלה כדי לראות את דרכי ההגעה אליו במפה:")
+            # שימוש ב-Data Editor כדי לאפשר בחירה (כאילו)
+            selected_city = st.selectbox("בחר יעד לתצוגה במפה:", df["יישוב"].tolist(), 
+                                         index=int(df["מרחק נסיעה ממוצע"].idxmin()))
+            
+            st.dataframe(df[["יישוב", "מרחק אווירי ממוצע", "מרחק נסיעה ממוצע"]].sort_values("מרחק נסיעה ממוצע"), 
+                         use_container_width=True, hide_index=True)
+
+        with col_map:
+            target_data = df[df["יישוב"] == selected_city].iloc[0]
+            m = folium.Map(location=[target_data['lat'], target_data['lon']], zoom_start=8)
+            
+            # ציור מסלולים ליעד הנבחר
+            for _, row in df.iterrows():
+                if row['יישוב'] == selected_city:
+                    folium.Marker([row['lat'], row['lon']], popup=row['יישוב'], icon=folium.Icon(color='red', icon='star')).add_to(m)
+                else:
+                    route = get_full_route((row['lat'], row['lon']), (target_data['lat'], target_data['lon']))
+                    if route:
+                        folium.PolyLine(route, color="blue", weight=3, opacity=0.7).add_to(m)
+                    folium.Marker([row['lat'], row['lon']], popup=row['יישוב']).add_to(m)
+            
+            folium_static(m, width=700, height=500)
