@@ -71,21 +71,3 @@ if calculate:
 
         st.subheader("📊 טבלת נגישות מבוססת כבישים")
         st.dataframe(pd.DataFrame(final_data).sort_values("מרחק נסיעה ממוצע (ק\"מ)"), use_container_width=True)
-            st.caption("הנקודה שנמצאת באמצע המפה.")
-        with c2:
-            st.metric("🏠 היישוב הכי נגיש", best_city['name'])
-            st.caption("היישוב שדורש הכי מעט נסיעה מצטברת משאר חברי הקבוצה.")
-
-        st.divider()
-        
-        # מפה
-        st.subheader("🗺️ מפת פריסה")
-        st.map(pd.DataFrame(locations), color='#ff4b4b')
-
-        # טבלת נגישות
-        st.subheader("📊 מדד הנגישות (מאמץ נסיעה מצטבר)")
-        df_acc = pd.DataFrame(accessibility_results).sort_values("avg_effort")
-        df_acc.columns = ["שם היישוב", "סך קילומטראז' נסיעה אליו", "מרחק נסיעה ממוצע (ק\"מ)"]
-        st.dataframe(df_acc, use_container_width=True, hide_index=True)
-        
-        st.success(f"💡 **המלצה:** אם אתם מחפשים להיפגש בבית של מישהו, הכי כדאי להיפגש ב**{best_city['name']}** - זה יחסוך לקבוצה הכי הרבה דלק וזמן.")
