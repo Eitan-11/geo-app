@@ -4,76 +4,108 @@ from geopy.distance import geodesic
 import pandas as pd
 import numpy as np
 
-# הגדרות דף
-st.set_page_config(page_title="מחשבון פיזור ומפגש", page_icon="📍")
+# 1. הגדרות דף ועיצוב כללי
+st.set_page_config(
+    page_title="מחשבון פיזור גיאוגרפי",
+    page_icon="🗺️",
+    layout="wide" # פריסה רחבה יותר
+)
 
-st.title("📍 מדד הפיזור ונקודת מפגש")
-st.markdown("מחשב את רמת הפיזור ומוצא את הנקודה הגיאוגרפית המרכזית למפגש.")
+# הוספת CSS מותאם אישית לעיצוב כפתורים וטקסט
+st.markdown("""
+    <style>
+    .main {
+        background-color: #f5f7f9;
+    }
+    .stButton>button {
+        width: 100%;
+        border-radius: 20px;
+        height: 3em;
+        background-color: #007bff;
+        color: white;
+    }
+    .metric-container {
+        background-color: white;
+        padding: 20px;
+        border-radius: 10px;
+        box-shadow: 0 4px 6px rgba(0,0,0,0.1);
+    }
+    </style>
+    """, unsafe_allow_html=True)
 
-# תיבת קלט
-input_cities = st.text_area("הזינו שמות יישובים (מופרדים בפסיק):", 
-                            "נופית, צור הדסה, רחובות, זכרון יעקב, גבעת שמואל")
+# 2. כותרת מעוצבת
+st.title("🗺️ מחשבון פיזור ונקודת מפגש")
+st.info("כלי חכם לניתוח גיאוגרפי של קבוצת יישובים ומציאת מרכז המסה התיאורטי.")
 
-if st.button("חשב פיזור ונקודת מפגש"):
+# 3. סרגל צד (Sidebar) להזנת נתונים
+with st.sidebar:
+    st.header("⚙️ הגדרות קלט")
+    input_cities = st.text_area(
+        "הזינו יישובים (מופרדים בפסיק):", 
+        "נופית, צור הדסה, רחובות, זכרון יעקב, גבעת שמואל",
+        height=200
+    )
+    calculate = st.button("🚀 הרץ ניתוח גיאוגרפי")
+    st.divider()
+    st.markdown("### אודות")
+    st.write("החישוב מתבצע באמצעות מנוע ArcGIS ומרחק אווירי מדויק.")
+
+# 4. לוגיקה ותצוגה מרכזית
+if calculate:
     geolocator = ArcGIS(timeout=10)
     city_list = [c.strip() for c in input_cities.split(",") if c.strip()]
     
     locations = []
-    
-    with st.spinner('מנתח מיקומים...'):
+    with st.spinner('מנתח נתונים גיאוגרפיים...'):
         for name in city_list:
             try:
                 search_query = name if "ישראל" in name or "Israel" in name else f"{name}, Israel"
                 loc = geolocator.geocode(search_query)
                 if loc:
                     locations.append({"name": name, "lat": loc.latitude, "lon": loc.longitude})
-            except:
-                continue
+            except: continue
 
     if len(locations) < 2:
-        st.error("חובה להזין לפחות שני יישובים תקינים.")
+        st.error("יש להזין לפחות שני יישובים תקינים.")
     else:
-        # 1. חישוב פיזור (כפי שהיה)
+        # חישובים (פיזור ומרכז)
         results = []
         all_avg_dist = []
-        coords_list = [(l["lat"], l["lon"]) for l in locations]
-        
         for i, c1 in enumerate(locations):
             dists = [geodesic((c1["lat"], c1["lon"]), (c2["lat"], c2["lon"])).km for j, c2 in enumerate(locations) if i != j]
             avg = sum(dists) / len(dists)
             all_avg_dist.append(avg)
             results.append({"יישוב": c1["name"], "ריחוק ממוצע (ק\"מ)": round(avg, 2)})
         
-        # 2. חישוב נקודת המפגש האופטימלית (ממוצע הקואורדינטות)
         center_lat = np.mean([l["lat"] for l in locations])
         center_lon = np.mean([l["lon"] for l in locations])
-        
-        # 3. תצוגת תוצאות
-        st.divider()
-        col1, col2 = st.columns(2)
-        col1.metric("רמת פיזור כללית", f"{sum(all_avg_dist)/len(all_avg_dist):.2f} ק\"מ")
-        
-        # מציאת היישוב הקרוב ביותר לנקודת המרכז התיאורטית
-        meeting_point = (center_lat, center_lon)
-        distances_to_center = [geodesic(meeting_point, (l["lat"], l["lon"])).km for l in locations]
-        closest_city_index = np.argmin(distances_to_center)
-        closest_city = locations[closest_city_index]["name"]
-        
-        col2.metric("היישוב המרכזי ביותר", closest_city)
+        final_score = sum(all_avg_dist) / len(all_avg_dist)
 
-        # 4. מפה עם כל הנקודות
-        st.subheader("מפת פריסה ונקודת מרכז")
-        df_map = pd.DataFrame(locations)
-        # הוספת נקודת המפגש למפה
-        meeting_df = pd.DataFrame([{"name": "נקודת מפגש אופטימלית", "lat": center_lat, "lon": center_lon}])
-        st.map(df_map)
-        
-        st.write(f"💡 **טיפ:** נקודת המפגש האידיאלית נמצאת באזור **{closest_city}**.")
-        
-        st.divider()
-        st.subheader("פירוט רמות ריחוק")
-        st.table(pd.DataFrame(results))
+        # תצוגת מדדים בכרטיסים (Metrics)
+        m1, m2, m3 = st.columns(3)
+        with m1:
+            st.metric("📊 רמת פיזור כללית", f"{final_score:.2f} ק\"מ")
+        with m2:
+            distances_to_center = [geodesic((center_lat, center_lon), (l["lat"], l["lon"])).km for l in locations]
+            closest_city = locations[np.argmin(distances_to_center)]["name"]
+            st.metric("📍 יישוב מרכזי", closest_city)
+        with m3:
+            st.metric("🏘️ סה\"כ יישובים", len(locations))
 
-        # אפשרות להורדת הנתונים
-        csv = pd.DataFrame(results).to_csv(index=False).encode('utf-8-sig')
-        st.download_button("הורד נתונים כ-CSV", csv, "dispersion_data.csv", "text/csv")
+        # תצוגת מפה וטבלה בשתי עמודות
+        st.divider()
+        col_map, col_table = st.columns([2, 1])
+        
+        with col_map:
+            st.subheader("📍 פריסה על המפה")
+            df_map = pd.DataFrame(locations)
+            st.map(df_map, color='#007bff', size=20)
+        
+        with col_table:
+            st.subheader("📝 פירוט מרחקים")
+            st.dataframe(pd.DataFrame(results), use_container_width=True, hide_index=True)
+
+        # הצעת מפגש
+        st.success(f"💡 **הצעה:** המקום הנוח ביותר למפגש הוא באזור **{closest_city}**.")
+else:
+    st.write("👈 התחל על ידי הזנת רשימת יישובים בסרגל הצד ולחיצה על הכפתור.")
