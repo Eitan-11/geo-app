@@ -6,116 +6,101 @@ import requests
 import folium
 from streamlit_folium import folium_static
 import numpy as np
+import time
 
-# 1. הגדרות דף
-st.set_page_config(page_title="מחשבון פיזור ונגישות מלא", page_icon="🗺️", layout="wide")
+st.set_page_config(page_title="מחשבון נגישות מהיר", page_icon="⚡", layout="wide")
 
-def get_road_dist(origin, target):
-    """פונקציית עזר למרחק כבישים מהיר (ללא מסלול מלא)"""
+# פונקציות עזר מהירות
+def get_route_data(origin, target, full_geometry=False):
+    geom = "full" if full_geometry else "simplified"
     try:
-        url = f"http://router.project-osrm.org/route/v1/driving/{origin[1]},{origin[0]};{target[1]},{target[0]}?overview=false"
+        url = f"http://router.project-osrm.org/route/v1/driving/{origin[1]},{origin[0]};{target[1]},{target[0]}?overview={geom}&geometries=geojson"
         r = requests.get(url, timeout=2)
-        if r.status_code == 200:
-            return r.json()['routes'][0]['distance'] / 1000
-    except: return geodesic(origin, target).km * 1.25
-
-def get_full_route(origin, target):
-    """פונקציה למסלול מלא (לציור על המפה)"""
-    try:
-        url = f"http://router.project-osrm.org/route/v1/driving/{origin[1]},{origin[0]};{target[1]},{target[0]}?overview=full&geometries=geojson"
-        r = requests.get(url, timeout=3)
         data = r.json()
         if data.get('code') == 'Ok':
-            line = data['routes'][0]['geometry']['coordinates']
-            return [[p[1], p[0]] for p in line]
-    except: return None
+            dist = data['routes'][0]['distance'] / 1000
+            coords = [[p[1], p[0]] for p in data['routes'][0]['geometry']['coordinates']] if full_geometry else None
+            return dist, coords
+    except: return None, None
+    return None, None
 
-st.title("🗺️ ניתוח גיאוגרפי ותחבורתי מלא")
+st.title("⚡ מחשבון נגישות ופיזור - גרסה מהירה (30+ יישובים)")
 
-# 2. קלט בסרגל צד
 with st.sidebar:
     st.header("⚙️ הזנת נתונים")
-    input_cities = st.text_area("הזינו יישובים (מופרדים בפסיק):", 
-                                "נופית, צור הדסה, רחובות, זכרון יעקב, גבעת שמואל")
-    calculate = st.button("🚀 הרץ ניתוח מלא")
+    input_cities = st.text_area("הזינו יישובים (מופרדים בפסיק):", "נופית, צור הדסה, רחובות, זכרון יעקב, גבעת שמואל, ירושלים, תל אביב, חיפה, באר שבע")
+    calculate = st.button("🚀 נתח במהירות")
 
-if calculate or 'results_df' in st.session_state:
+if calculate or 'locs' in st.session_state:
     if calculate:
         geolocator = ArcGIS(timeout=10)
-        city_list = [c.strip() for c in input_cities.split(",") if c.strip()]
-        
+        names = [c.strip() for c in input_cities.split(",") if c.strip()]
         locs = []
-        with st.spinner('מאתר מיקומים...'):
-            for name in city_list:
-                loc = geolocator.geocode(f"{name}, Israel")
-                if loc: locs.append({"name": name, "lat": loc.latitude, "lon": loc.longitude})
+        progress_bar = st.progress(0)
         
-        if len(locs) >= 2:
-            st.session_state.locations = locs
-            
-            # חישוב כל המטריצה (אווירי + כבישים)
-            all_results = []
-            with st.spinner('מחשב מדדי פיזור ונגישות...'):
-                for i, target in enumerate(locs):
-                    air_dists = []
-                    road_dists = []
-                    for j, origin in enumerate(locs):
-                        if i == j: continue
-                        air_dists.append(geodesic((origin['lat'], origin['lon']), (target['lat'], target['lon'])).km)
-                        road_dists.append(get_road_dist((origin['lat'], origin['lon']), (target['lat'], target['lon'])))
-                    
-                    all_results.append({
-                        "יישוב": target['name'],
-                        "מרחק אווירי ממוצע": round(np.mean(air_dists), 1),
-                        "מרחק נסיעה ממוצע": round(np.mean(road_dists), 1),
-                        "סך קילומטראז' (כבישים)": round(sum(road_dists), 1),
-                        "lat": target['lat'], "lon": target['lon']
-                    })
-            
-            st.session_state.results_df = pd.DataFrame(all_results)
-            st.session_state.dispersion = st.session_state.results_df["מרחק אווירי ממוצע"].mean()
+        # שלב 1: איתור מיקומים (מהיר)
+        for i, name in enumerate(names):
+            loc = geolocator.geocode(f"{name}, Israel")
+            if loc: locs.append({"name": name, "lat": loc.latitude, "lon": loc.longitude})
+            progress_bar.progress((i + 1) / len(names))
+        
+        st.session_state.locs = locs
+        
+        # שלב 2: חישוב אווירי לכולם (מיידי)
+        air_results = []
+        for i, target in enumerate(locs):
+            dists = [geodesic((target['lat'], target['lon']), (o['lat'], o['lon'])).km for j, o in enumerate(locs) if i != j]
+            air_results.append({"יישוב": target['name'], "מרחק אווירי ממוצע": round(np.mean(dists), 1), "lat": target['lat'], "lon": target['lon']})
+        
+        st.session_state.air_df = pd.DataFrame(air_results).sort_values("מרחק אווירי ממוצע")
+        st.session_state.total_disp = st.session_state.air_df["מרחק אווירי ממוצע"].mean()
 
-    # --- תצוגת התוצאות (אם קיימות בזיכרון) ---
-    if 'results_df' in st.session_state:
-        df = st.session_state.results_df
+    # תצוגה
+    if 'air_df' in st.session_state:
+        df = st.session_state.air_df
         
-        # א. כרטיסי מדדים (Metrics)
-        m1, m2, m3 = st.columns(3)
-        m1.metric("📊 מדד פיזור כללי", f"{st.session_state.dispersion:.1f} ק\"מ")
-        
-        best_air = df.loc[df["מרחק אווירי ממוצע"].idxmin(), "יישוב"]
-        m2.metric("📍 המרכז הגיאוגרפי", best_air)
-        
-        best_road = df.loc[df["מרחק נסיעה ממוצע"].idxmin(), "יישוב"]
-        m3.metric("🏠 היישוב הכי נגיש", best_road)
+        c1, c2, c3 = st.columns(3)
+        c1.metric("📊 מדד פיזור כללי", f"{st.session_state.total_disp:.1f} ק\"מ")
+        c2.metric("📍 המרכז הגיאוגרפי", df.iloc[0]["יישוב"])
+        c3.metric("🏘️ סה\"כ יישובים", len(df))
 
         st.divider()
 
-        # ב. בחירת יעד למפה וטבלה
-        col_table, col_map = st.columns([1, 2])
-        
-        with col_table:
-            st.subheader("📝 טבלת השוואה")
-            st.write("לחץ על יישוב בטבלה כדי לראות את דרכי ההגעה אליו במפה:")
-            # שימוש ב-Data Editor כדי לאפשר בחירה (כאילו)
-            selected_city = st.selectbox("בחר יעד לתצוגה במפה:", df["יישוב"].tolist(), 
-                                         index=int(df["מרחק נסיעה ממוצע"].idxmin()))
+        col_ui, col_map = st.columns([1, 2])
+
+        with col_ui:
+            st.subheader("🎯 בחירת יעד למפגש")
+            selected_city = st.selectbox("בחר יישוב כדי לחשב מסלולי נסיעה אמיתיים אליו:", df["יישוב"].tolist())
             
-            st.dataframe(df[["יישוב", "מרחק אווירי ממוצע", "מרחק נסיעה ממוצע"]].sort_values("מרחק נסיעה ממוצע"), 
-                         use_container_width=True, hide_index=True)
+            target_node = df[df["יישוב"] == selected_city].iloc[0]
+            
+            # חישוב כבישים רק עבור היעד הנבחר (חוסך המון זמן!)
+            road_details = []
+            total_road_km = 0
+            
+            with st.spinner(f'מחשב מסלולי כבישים אל {selected_city}...'):
+                for _, origin in df.iterrows():
+                    if origin['יישוב'] == selected_city: continue
+                    dist, _ = get_route_data((origin['lat'], origin['lon']), (target_node['lat'], target_node['lon']))
+                    if dist is None: dist = origin['מרחק אווירי ממוצע'] * 1.25 # Fallback
+                    road_details.append({"מ": origin['יישוב'], "ק\"מ": round(dist, 1)})
+                    total_road_km += dist
+            
+            avg_road = total_road_km / (len(df)-1)
+            st.info(f"🛣️ מרחק נסיעה ממוצע ל{selected_city}: **{avg_road:.1f} ק\"מ**")
+            st.dataframe(df[["יישוב", "מרחק אווירי ממוצע"]], use_container_width=True, hide_index=True)
 
         with col_map:
-            target_data = df[df["יישוב"] == selected_city].iloc[0]
-            m = folium.Map(location=[target_data['lat'], target_data['lon']], zoom_start=8)
+            m = folium.Map(location=[target_node['lat'], target_node['lon']], zoom_start=8)
             
-            # ציור מסלולים ליעד הנבחר
-            for _, row in df.iterrows():
-                if row['יישוב'] == selected_city:
-                    folium.Marker([row['lat'], row['lon']], popup=row['יישוב'], icon=folium.Icon(color='red', icon='star')).add_to(m)
+            # ציור מסלולים בזמן אמת רק ליעד הנבחר
+            for _, origin in df.iterrows():
+                if origin['יישוב'] == selected_city:
+                    folium.Marker([origin['lat'], origin['lon']], popup=origin['יישוב'], icon=folium.Icon(color='red', icon='star')).add_to(m)
                 else:
-                    route = get_full_route((row['lat'], row['lon']), (target_data['lat'], target_data['lon']))
-                    if route:
-                        folium.PolyLine(route, color="blue", weight=3, opacity=0.7).add_to(m)
-                    folium.Marker([row['lat'], row['lon']], popup=row['יישוב']).add_to(m)
+                    _, route_coords = get_route_data((origin['lat'], origin['lon']), (target_node['lat'], target_node['lon']), full_geometry=True)
+                    if route_coords:
+                        folium.PolyLine(route_coords, color="blue", weight=3, opacity=0.5).add_to(m)
+                    folium.Marker([origin['lat'], origin['lon']], popup=origin['יישוב']).add_to(m)
             
-            folium_static(m, width=700, height=500)
+            folium_static(m, width=800, height=550)
